@@ -1,2 +1,2 @@
-** Handwritten Text Generation - thesis ** 
+# Handwritten Text Generation - thesis
 
