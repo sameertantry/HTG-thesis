@@ -1,0 +1,25 @@
+preprocessor:
+  normalize:
+    mean:
+    - 0.5
+    std:
+    - 0.5
+  random_zoom_out:
+    side_range:
+    - 1
+    - 1.5
+    p: 0.7
+    fill: 255
+  h: 300
+  w: 600
+
+  random_affine:
+    degrees: 5
+    fill: 255
+
+datasets:
+- "data/train.csv"
+
+dataloader:
+  batch_size: 128
+  num_workers: 20
