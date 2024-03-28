@@ -1,3 +1,5 @@
+import torch
+
 from collections.abc import Iterable
 
 class CharLevelTokenizer:

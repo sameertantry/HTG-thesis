@@ -7,9 +7,13 @@ from torchvision.transforms import v2
 from torchvision.transforms.v2 import functional as TF2
 from torch.utils.data import Dataset, DataLoader
 
+from PIL import Image
+
 from omegaconf import DictConfig, OmegaConf
 
 from pathlib import Path
+
+from handwritten_generation.datasets.tokenizer import build_tokenizer
 
 
 class Text2ImageDataset(Dataset):
@@ -19,15 +23,17 @@ class Text2ImageDataset(Dataset):
         self.tokenizer = build_tokenizer(data["line"])
         self.data = data
         self.tokenized_data = self.tokenizer.encode(data["line"])
+
+        self.margin = self.config.preprocessor.margin
         
-        self.preprocess = v2.Compose([
-            v2.ToImage(),
-            v2.ToDtype(torch.uint8, scale=True),
-        ])
-        self.normalize = v2.Compose([
-            v2.ToDtype(torch.float32, scale=True),
-            v2.Normalize(mean=self.config.preprocessor.normalize.mean, std=self.config.preprocessor.normalize.std),
-        ])
+        self.preprocess = v2.ToImageTensor()
+        self.normalize = v2.Compose(
+            [
+                v2.ConvertImageDtype(), 
+                v2.Normalize(mean=self.config.preprocessor.normalize.mean, std=self.config.preprocessor.normalize.std),
+            ]
+        )
+        
         self.train_transform = v2.Compose([
             v2.RandomZoomOut(**self.config.preprocessor.random_zoom_out),
             v2.RandomAffine(**self.config.preprocessor.random_affine),
@@ -38,8 +44,8 @@ class Text2ImageDataset(Dataset):
         ])
 
     def _rescale(self, image_tensor: torch.FloatTensor) -> torch.FloatTensor:
-        if self.is_train:
-            image_tensor = self.train_transform(image_tensor)
+        #if self.is_train:
+        #    image_tensor = self.train_transform(image_tensor)
             
         _, h, w = image_tensor.size()
         desired_h = self.config.preprocessor.h
@@ -49,17 +55,16 @@ class Text2ImageDataset(Dataset):
             scaled_h = h // scale
             scaled_h -= scaled_h % 2
             scaled_w = desired_w
-            image_tensor = TF2.resize(image_tensor, (scaled_h, scaled_w))
         elif h > desired_h:
             scale = h // desired_h
             scaled_w = w // scale
             scaled_w -= scaled_w % 2
             scaled_h = desired_h
-            image_tensor = TF2.resize(image_tensor, (scaled_h, scaled_w))
         else:
             scaled_w = w - w % 2
             scaled_h = h - h % 2
-    
+
+        image_tensor = TF2.resize(image_tensor, (scaled_h, scaled_w), antialias=True)
         image_tensor = self.normalize(image_tensor)
         image_tensor = TF2.pad(image_tensor, ((desired_w - scaled_w) // 2, (desired_h - scaled_h) // 2, (desired_w - scaled_w) // 2, (desired_h - scaled_h) // 2), fill=1.)
         
@@ -71,7 +76,8 @@ class Text2ImageDataset(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.LongTensor, torch.FloatTensor]:
         row = self.data.iloc[idx]
         image = Image.open(row["image_path"])
-        image = self.preprocess(image)
+        
+        image = self.preprocess(image)[:, int(row["t"]) - self.margin : -(int(row["b"]) - self.margin), int(row["l"]) - self.margin : -(int(row["r"]) - self.margin)]
         image = self._rescale(image)
 
         return torch.LongTensor(self.tokenized_data[idx]), image
