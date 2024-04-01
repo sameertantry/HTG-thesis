@@ -151,24 +151,90 @@ class SelfAttention(nn.Module):
 
         self.mha = nn.MultiheadAttention(embed_dim=num_channels, num_heads=num_heads, dropout=dropout, batch_first=True)
         
-        self.layer_norm = nn.LayerNorm(num_channels)
+        self.layer_norm_1 = nn.LayerNorm(num_channels)
+        self.layer_norm_2 = nn.LayerNorm(num_channels)
+        self.layer_norm_3 = nn.LayerNorm(num_channels)
+        
         self.mlp = nn.Sequential(
-            nn.LayerNorm(num_channels),
-            nn.Linear(num_channels, num_channels),
+            nn.Linear(num_channels, 4 * num_channels),
             nn.GELU(),
-            nn.Linear(num_channels, num_channels),
+            nn.Linear(4 * num_channels, num_channels),
         )
-        self.mlp = ResConnection(self.mlp)
 
     def forward(self, x):
         _, num_channels, h, w = x.size()
         
         x = x.flatten(start_dim=-2).transpose(1, 2)
-        x = self.layer_norm(x)
-        x = x + self.mha(x, x, x, need_weights=False)[0]
-        x = self.mlp(x)
+        
+        x_norm = self.layer_norm_1(x)
+        x = x + self.mha(x_norm, x_norm, x_norm, need_weights=False)[0]
 
-        return x.transpose(1, 2).view(-1, num_channels, h, w)
+        x_norm = self.layer_norm_2(x)
+        x_norm = self.layer_norm_3(x + self.mlp(x_norm))
+
+        return x_norm.transpose(1, 2).view(-1, num_channels, h, w)
+
+
+
+
+class UNet1(nn.Module):
+    def __init__(self, in_channels: int = 1, out_channels: int = 1, time_emb_dim: int = 256, text_emb_dim: int = 64):
+        super().__init__()
+
+        self.time_emb_dim = time_emb_dim
+        self.text_emb_dim = text_emb_dim
+
+        self.conv = ConvBlock(in_channels=in_channels, out_channels=64)
+        
+        self.down1 = DownBlock(in_channels=64, out_channels=128, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
+        self.attn1 = SelfAttention(num_channels=128, num_heads=16)
+
+        self.down2 = DownBlock(in_channels=128, out_channels=256, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
+        self.attn2 = SelfAttention(num_channels=256, num_heads=8)
+
+        self.down3 = DownBlock(in_channels=256, out_channels=512, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
+        self.attn3 = SelfAttention(num_channels=512, num_heads=4)
+        
+        self.bn = ConvBlock(in_channels=512, out_channels=512, residual=True)
+
+        self.up1 = UpBlock(in_channels=512 + 256, out_channels=256, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
+        #self.attn4 = SelfAttention(num_channels=256, num_heads=4)
+
+        self.up2 = UpBlock(in_channels=256 + 128, out_channels=128, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
+        #self.attn5 = SelfAttention(num_channels=128, num_heads=8)
+
+        self.up3 = UpBlock(in_channels=128 + 64, out_channels=64, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
+        #self.attn6 = SelfAttention(num_channels=64, num_heads=16)
+
+        self.proj = nn.Sequential(
+            ConvBlock(in_channels=64, out_channels=64, residual=True),
+            nn.Conv2d(in_channels=64, out_channels=out_channels, kernel_size=1),
+        )
+
+    def forward(self, x, time_emb, text_emb):
+        x1 = self.conv(x)
+
+        x2 = self.down1(x1, time_emb, text_emb)
+        x2 = self.attn1(x2)
+
+        x3 = self.down2(x2, time_emb, text_emb)
+        x3 = self.attn2(x3)
+
+        x4 = self.down3(x3, time_emb, text_emb)
+        x4 = self.attn3(x4)
+
+        x = self.bn(x4)
+
+        x = self.up1(x, time_emb, text_emb, x3)
+        #x = self.attn4(x)
+
+        x = self.up2(x, time_emb, text_emb, x2)
+        #x = self.attn5(x)
+
+        x = self.up3(x, time_emb, text_emb, x1)
+        #x = self.attn6(x)
+
+        return self.proj(x)
 
 
 class UNet(nn.Module):
@@ -178,44 +244,50 @@ class UNet(nn.Module):
         self.time_emb_dim = time_emb_dim
         self.text_emb_dim = text_emb_dim
 
-        self.conv1 = ConvBlock(in_channels=in_channels, out_channels=16)
-        self.down1 = DownBlock(in_channels=16, out_channels=32, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
+        self.conv = ConvBlock(in_channels=in_channels, out_channels=64)
+        
+        self.down1 = DownBlock(in_channels=64, out_channels=128, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
 
-        self.conv2 = ConvBlock(in_channels=32, out_channels=64)
-        self.down2 = DownBlock(in_channels=64, out_channels=128, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
+        self.down2 = DownBlock(in_channels=128, out_channels=256, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
 
-        self.conv3 = ConvBlock(in_channels=128, out_channels=256)
         self.down3 = DownBlock(in_channels=256, out_channels=512, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
-
+        
         self.bn1 = ConvBlock(in_channels=512, out_channels=1024)
         self.bn2 = ConvBlock(in_channels=1024, out_channels=1024, residual=True)
         self.bn3 = ConvBlock(in_channels=1024, out_channels=512)
 
         self.up1 = UpBlock(in_channels=512 + 256, out_channels=256, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
-        self.up2 = UpBlock(in_channels=256 + 64, out_channels=128, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
-        self.up3 = UpBlock(in_channels=128 + 16, out_channels=64, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
+        self.up2 = UpBlock(in_channels=256 + 128, out_channels=128, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
+        self.up3 = UpBlock(in_channels=128 + 64, out_channels=64, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
 
         self.proj = nn.Sequential(
-            ConvBlock(in_channels=64, out_channels=32),
-            nn.Conv2d(in_channels=32, out_channels=out_channels, kernel_size=1),
+            ConvBlock(in_channels=64, out_channels=64, residual=True),
+            nn.Conv2d(in_channels=64, out_channels=out_channels, kernel_size=1),
         )
 
     def forward(self, x, time_emb, text_emb):
-        x1 = self.conv1(x)
+        x1 = self.conv(x)
+
         x2 = self.down1(x1, time_emb, text_emb)
+        #x2 = self.attn1(x2)
 
-        x2 = self.conv2(x2)
         x3 = self.down2(x2, time_emb, text_emb)
+        #x3 = self.attn2(x3)
 
-        x3 = self.conv3(x3)
-        x = self.down3(x3, time_emb, text_emb)
+        x4 = self.down3(x3, time_emb, text_emb)
+        #x4 = self.attn3(x4)
 
-        x = self.bn1(x)
+        x = self.bn1(x4)
         x = self.bn2(x)
         x = self.bn3(x)
 
         x = self.up1(x, time_emb, text_emb, x3)
+        #x = self.attn4(x)
+
         x = self.up2(x, time_emb, text_emb, x2)
+        #x = self.attn5(x)
+
         x = self.up3(x, time_emb, text_emb, x1)
+        #x = self.attn6(x)
 
         return self.proj(x)

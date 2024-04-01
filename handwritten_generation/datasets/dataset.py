@@ -26,10 +26,15 @@ class Text2ImageDataset(Dataset):
 
         self.margin = self.config.preprocessor.margin
         
-        self.preprocess = v2.ToImageTensor()
+        self.preprocess = v2.Compose(
+            [
+                v2.ToImage(),
+                v2.ToDtype(torch.uint8, scale=True),
+            ]
+        )
         self.normalize = v2.Compose(
             [
-                v2.ConvertImageDtype(), 
+                v2.ToDtype(dtype=torch.float32, scale=True), 
                 v2.Normalize(mean=self.config.preprocessor.normalize.mean, std=self.config.preprocessor.normalize.std),
             ]
         )

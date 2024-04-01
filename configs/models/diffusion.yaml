@@ -4,4 +4,4 @@ beta_start: 0.0001
 beta_end: 0.02
 
 time_emb_dim: 256
-text_emb_dim: 64
+text_emb_dim: 256
