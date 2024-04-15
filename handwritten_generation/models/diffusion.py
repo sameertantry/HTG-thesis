@@ -9,24 +9,36 @@ from omegaconf import DictConfig
 from time import time
 from tqdm import tqdm
 
-from handwritten_generation.models.modules import UNet, AvgTextEmbedding, PositionalEncoding
+from handwritten_generation.models.modules import AttentionTextEmbbeding, PositionalEncoding
+from handwritten_generation.models.unet import UNet
 
 
 def build_model_from_config(config: DictConfig) -> nn.Module:
-    return UNet(time_emb_dim=config.time_emb_dim, text_emb_dim=config.text_emb_dim);
+    return UNet(**config);
+
+def build_beta_schedule_from_config(config: DictConfig):
+    if config.type == "lin":
+        return torch.linspace(config.beta_start, config.beta_end, config.noise_steps)
+    else:
+        raise ValueError(f"Unsupported schedule type. Received: {config.type}.")
+
 
 class Diffusion(nn.Module):
-    def __init__(self, config: DictConfig, img_size: tuple[int, int], vocab_size: int, max_seq_len: int, device: str):
+    def __init__(
+        self,
+        config: DictConfig,
+        img_size: tuple[int, int, int],
+        vocab_size: int,
+        max_seq_len: int,
+    ):
         super().__init__()
 
         self.config = config
-
-        self.my_device = device
         
-        self.noise_steps = self.config.noise_steps
-        self.beta_start = self.config.beta_start
-        self.beta_end = self.config.beta_end
-        beta = torch.linspace(self.beta_start, self.beta_end, self.noise_steps)
+        self.noise_steps = self.config.diffusion.noise_steps
+        self.beta_start = self.config.diffusion.beta_start
+        self.beta_end = self.config.diffusion.beta_end
+        beta = build_beta_schedule_from_config(config.diffusion)
         self.register_buffer("beta", beta)
 
         alpha = 1. - beta
@@ -37,14 +49,14 @@ class Diffusion(nn.Module):
         
         self.img_size = (img_size, img_size) if isinstance(img_size, int) else img_size
 
-        self.model = build_model_from_config(config)
-        self.text_emb = AvgTextEmbedding(
+        self.model = build_model_from_config(config.model)
+        self.text_emb = AttentionTextEmbbeding(
             vocab_size=vocab_size,
-            emb_size=config.text_emb_dim,
+            emb_dim=config.model.text_emb_dim,
             max_seq_len=max_seq_len,
         )
         self.time_emb = PositionalEncoding(
-            emb_size=config.time_emb_dim,
+            emb_dim=config.model.time_emb_dim,
             max_seq_len=self.noise_steps+1,
         )
         
@@ -57,7 +69,9 @@ class Diffusion(nn.Module):
         sqrt_symmetric_alpha_hat = torch.sqrt(1 - self.alpha_hat[t]).view(-1, 1, 1, 1)
 
         noise = torch.randn_like(x)
-        return sqrt_alpha_hat * x + sqrt_symmetric_alpha_hat * noise, noise
+        noise_images = sqrt_alpha_hat * x + sqrt_symmetric_alpha_hat * noise
+        
+        return noise_images, noise
         
     def sample_timestapms(self, n, device):
         return torch.randint(low=1, high=self.noise_steps, size=(n,), device=device)
@@ -67,9 +81,11 @@ class Diffusion(nn.Module):
     def sample(self, tokenized_text: torch.Tensor, device: str):
         self.eval()
 
+        batch_size = tokenized_text.size(0)
+
         text_emb = self.text_emb(tokenized_text)
-        x = torch.randn((tokenized_text.size(0), 1, self.img_size[0], self.img_size[1]), device=device)
-        iterations = torch.arange(1, self.noise_steps, device=device).view(-1, 1).repeat(1, tokenized_text.size(0))
+        x = torch.randn((batch_size, *self.img_size), device=device)
+        iterations = torch.arange(1, self.noise_steps, device=device).view(-1, 1).repeat(1, batch_size)
 
         for t in reversed(range(1, self.noise_steps)):
             batch_t = iterations[t - 1]

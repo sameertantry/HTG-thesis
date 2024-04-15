@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import copy
+
 
 class ResConnection(nn.Module):
     def __init__(self, module):
@@ -13,12 +15,12 @@ class ResConnection(nn.Module):
         return x + self.module(x)
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, emb_size: int, max_seq_len: int):
+    def __init__(self, emb_dim: int, max_seq_len: int):
         super().__init__()
 
-        pe = torch.zeros(max_seq_len, emb_size)
+        pe = torch.zeros(max_seq_len, emb_dim)
         positions = torch.arange(0, max_seq_len).unsqueeze(1)
-        div = torch.exp(-torch.log(torch.tensor(10000)) * torch.arange(0, emb_size, 2) / emb_size)  # sin (pos / 10000 ** (2i / emb_size))
+        div = torch.exp(-torch.log(torch.tensor(10000)) * torch.arange(0, emb_dim, 2) / emb_dim)  # sin (pos / 10000 ** (2i / emb_dim))
         pe[:, 0::2] = torch.sin(positions * div)
         pe[:, 1::2] = torch.cos(positions * div)
         self.register_buffer("pe", pe)
@@ -30,25 +32,61 @@ class PositionalEncoding(nn.Module):
         return self.pe[x, :]
 
 
-class TokenEmbedding(nn.Module):
-    def __init__(self, vocab_size: int, emb_size: int, max_seq_len: int):
+class Attention(nn.Module):
+    def __init__(self, hidden_dim: int, q_in: int = None, k_in: int = None, v_in: int = None):
         super().__init__()
 
-        self.emb = nn.Embedding(vocab_size, emb_size)
-        self.pe = PositionalEncoding(emb_size=emb_size, max_seq_len=max_seq_len)
+        self.hidden_dim = hidden_dim
+
+        self.Q = nn.Linear(q_in if q_in else hidden_dim, hidden_dim)
+        self.K = nn.Linear(k_in if k_in else hidden_dim, hidden_dim)
+        self.V = nn.Linear(v_in if v_in else hidden_dim, hidden_dim)
+
+    def forward(self, query, key, value):
+        # x : B x SEQ_LEN x HIDDEN_DIM
+        query = self.Q(query)
+        key = self.K(key)
+        value = self.V(value)
+
+        return F.scaled_dot_product_attention(query=query, key=key, value=value)
+
+
+class TokenEmbedding(nn.Module):
+    def __init__(self, vocab_size: int, emb_dim: int, max_seq_len: int):
+        super().__init__()
+
+        self.emb = nn.Embedding(vocab_size, emb_dim)
+        self.pe = PositionalEncoding(emb_dim=emb_dim, max_seq_len=max_seq_len)
 
     def forward(self, x):
         return self.pe(self.emb(x))
 
-class AvgTextEmbedding(nn.Module):
-    def __init__(self, vocab_size: int, emb_size: int, max_seq_len: int):
+class TextEmbedding(nn.Module):
+    def __init__(self, vocab_size: int, emb_dim: int, max_seq_len: int):
         super().__init__()
+        self.emb = TokenEmbedding(vocab_size=vocab_size, emb_dim=emb_dim, max_seq_len=max_seq_len)
 
-        self.emb = TokenEmbedding(vocab_size=vocab_size, emb_size=emb_size, max_seq_len=max_seq_len)
+    def forward(self, x):
+        raise NotImplementedError("Implement 'forward' method in an inheritor")
+        
+
+class AvgTextEmbedding(TextEmbedding):
+    def __init__(self, vocab_size: int, emb_dim: int, max_seq_len: int):
+        super().__init__(vocab_size=vocab_size, emb_dim=emb_dim, max_seq_len=max_seq_len)
         self.pooling = nn.AdaptiveAvgPool1d(1)
 
     def forward(self, x):
         return self.pooling(self.emb(x).transpose(1, 2)).transpose(1, 2).squeeze(1)
+
+
+class AttentionTextEmbbeding(TextEmbedding):
+    def __init__(self, vocab_size: int, emb_dim: int, max_seq_len: int):
+        super().__init__(vocab_size=vocab_size, emb_dim=emb_dim, max_seq_len=max_seq_len)
+        self.attention = SelfAttention(hidden_dim=emb_dim)
+
+    def forward(self, x):
+        embeddings = self.emb(x)
+        return self.attention(embeddings)
 
 
 class ConvBlock(nn.Module):
@@ -73,221 +111,94 @@ class ConvBlock(nn.Module):
         return F.gelu(self.convs(x))
 
 
-class DownBlock(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, time_emb_dim: int, text_emb_dim: int):
-        super().__init__()
-
-        self.down = nn.Sequential(
-            nn.MaxPool2d(2),
-            ConvBlock(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, residual=True),
-            ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size),
-        )
-
-        self.time_proj = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(
-                time_emb_dim,
-                out_channels,
-            )
-        )
-        self.text_proj = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(
-                text_emb_dim,
-                out_channels,
-            )
-        )
-
-    def forward(self, x, time_emb, text_emb):
-        x = self.down(x)
-
-        time_emb = self.time_proj(time_emb)
-        time_emb = time_emb[:, :, None, None].repeat(1, 1, x.size(-2), x.size(-1))
-
-        text_emb = self.text_proj(text_emb)
-        text_emb = text_emb[:, :, None, None].repeat(1, 1, x.size(-2), x.size(-1))
-
-        return F.gelu(x + time_emb + text_emb)
-
-class UpBlock(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, time_emb_dim: int, text_emb_dim: int):
-        super().__init__()
-
-        self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
-        self.convs = nn.Sequential(
-            ConvBlock(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, residual=True),
-            ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size),
-        )
-
-        self.time_proj = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(
-                time_emb_dim,
-                out_channels,
-            )
-        )
-        self.text_proj = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(
-                text_emb_dim,
-                out_channels,
-            )
-        )
-
-    def forward(self, x, time_emb, text_emb, res_x):
-        x = self.up(x)
-        x = torch.cat([x, res_x], dim=1)
-        x = self.convs(x)
-        
-        time_emb = self.time_proj(time_emb)[:, :, None, None].repeat(1, 1, x.size(-2), x.size(-1))
-        text_emb = self.text_proj(text_emb)[:, :, None, None].repeat(1, 1, x.size(-2), x.size(-1))
-
-        return F.gelu(x + time_emb + text_emb)
-
-
+# single head self-attention block
 class SelfAttention(nn.Module):
-    def __init__(self, num_channels: int, num_heads: int, dropout: float = 0.):
+    def __init__(self, hidden_dim: int, dropout: float = 0.1, dim_extend: int = 4):
         super().__init__()
-
-        self.mha = nn.MultiheadAttention(embed_dim=num_channels, num_heads=num_heads, dropout=dropout, batch_first=True)
         
-        self.layer_norm_1 = nn.LayerNorm(num_channels)
-        self.layer_norm_2 = nn.LayerNorm(num_channels)
-        self.layer_norm_3 = nn.LayerNorm(num_channels)
+        self.ln1 = nn.LayerNorm(hidden_dim)
+        self.ln2 = nn.LayerNorm(hidden_dim)
+        self.ln3 = nn.LayerNorm(hidden_dim)
+
+        self.attention = Attention(hidden_dim)
         
         self.mlp = nn.Sequential(
-            nn.Linear(num_channels, 4 * num_channels),
-            nn.GELU(),
-            nn.Linear(4 * num_channels, num_channels),
+            nn.Linear(hidden_dim, dim_extend * hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(p=dropout),
+            nn.Linear(dim_extend * hidden_dim, hidden_dim),
         )
 
     def forward(self, x):
-        _, num_channels, h, w = x.size()
-        
-        x = x.flatten(start_dim=-2).transpose(1, 2)
-        
-        x_norm = self.layer_norm_1(x)
-        x = x + self.mha(x_norm, x_norm, x_norm, need_weights=False)[0]
+        x_ln = self.ln1(x)
+        x = x + self.attention(query=x_ln, key=x_ln, value=x_ln)
+        x = self.ln2(x)
+        x = x + self.mlp(x)
 
-        x_norm = self.layer_norm_2(x)
-        x_norm = self.layer_norm_3(x + self.mlp(x_norm))
-
-        return x_norm.transpose(1, 2).view(-1, num_channels, h, w)
+        return self.ln3(x)
 
 
-
-
-class UNet1(nn.Module):
-    def __init__(self, in_channels: int = 1, out_channels: int = 1, time_emb_dim: int = 256, text_emb_dim: int = 64):
+# single head cross-attention block
+class CrossAttention(nn.Module):
+    def __init__(self, hidden_dim: int, context_hidden_dim: int, dropout=0.1):
         super().__init__()
-
-        self.time_emb_dim = time_emb_dim
-        self.text_emb_dim = text_emb_dim
-
-        self.conv = ConvBlock(in_channels=in_channels, out_channels=64)
         
-        self.down1 = DownBlock(in_channels=64, out_channels=128, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
-        self.attn1 = SelfAttention(num_channels=128, num_heads=16)
-
-        self.down2 = DownBlock(in_channels=128, out_channels=256, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
-        self.attn2 = SelfAttention(num_channels=256, num_heads=8)
-
-        self.down3 = DownBlock(in_channels=256, out_channels=512, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
-        self.attn3 = SelfAttention(num_channels=512, num_heads=4)
+        self.ln1 = nn.LayerNorm(hidden_dim)
+        self.ln2 = nn.LayerNorm(hidden_dim)
+        self.ln3 = nn.LayerNorm(hidden_dim)
+        self.ln4 = nn.LayerNorm(hidden_dim)
         
-        self.bn = ConvBlock(in_channels=512, out_channels=512, residual=True)
+        self.self_attention = Attention(hidden_dim=hidden_dim)
+        self.cross_attention = Attention(hidden_dim=hidden_dim, k_in=context_hidden_dim, v_in=context_hidden_dim)
 
-        self.up1 = UpBlock(in_channels=512 + 256, out_channels=256, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
-        #self.attn4 = SelfAttention(num_channels=256, num_heads=4)
-
-        self.up2 = UpBlock(in_channels=256 + 128, out_channels=128, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
-        #self.attn5 = SelfAttention(num_channels=128, num_heads=8)
-
-        self.up3 = UpBlock(in_channels=128 + 64, out_channels=64, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
-        #self.attn6 = SelfAttention(num_channels=64, num_heads=16)
-
-        self.proj = nn.Sequential(
-            ConvBlock(in_channels=64, out_channels=64, residual=True),
-            nn.Conv2d(in_channels=64, out_channels=out_channels, kernel_size=1),
+        self.mlp = nn.Sequential(
+            nn.Linear(hidden_dim, 4 * hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(p=dropout),
+            nn.Linear(4 * hidden_dim, hidden_dim)
         )
-
-    def forward(self, x, time_emb, text_emb):
-        x1 = self.conv(x)
-
-        x2 = self.down1(x1, time_emb, text_emb)
-        x2 = self.attn1(x2)
-
-        x3 = self.down2(x2, time_emb, text_emb)
-        x3 = self.attn2(x3)
-
-        x4 = self.down3(x3, time_emb, text_emb)
-        x4 = self.attn3(x4)
-
-        x = self.bn(x4)
-
-        x = self.up1(x, time_emb, text_emb, x3)
-        #x = self.attn4(x)
-
-        x = self.up2(x, time_emb, text_emb, x2)
-        #x = self.attn5(x)
-
-        x = self.up3(x, time_emb, text_emb, x1)
-        #x = self.attn6(x)
-
-        return self.proj(x)
+        
+    def forward(self, x, context):
+        x_ln = self.ln1(x)
+        x = x + self.self_attention(query=x_ln, key=x_ln, value=x_ln)
+        x = self.ln2(x)
+        x = x + self.cross_attention(query=x, key=context, value=context)
+        x = self.ln3(x)
+        x = x + self.mlp(x)
+        
+        return self.ln4(x)
 
 
-class UNet(nn.Module):
-    def __init__(self, in_channels: int = 1, out_channels: int = 1, time_emb_dim: int = 256, text_emb_dim: int = 64):
+
+class EMA:
+    def __init__(self, beta, model, step_start_ema=500):
         super().__init__()
+        self.beta = beta
+        self.step = 0
+        self.ema_model = copy.deepcopy(model).eval().requires_grad_(False)
 
-        self.time_emb_dim = time_emb_dim
-        self.text_emb_dim = text_emb_dim
+        self.step_start_ema = step_start_ema
 
-        self.conv = ConvBlock(in_channels=in_channels, out_channels=64)
-        
-        self.down1 = DownBlock(in_channels=64, out_channels=128, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
+    def update_model_average(self, current_model):
+        for current_params, ema_params in zip(current_model.parameters(), self.ema_model.parameters()):
+            old_weight, up_weight = ema_params.data, current_params.data
+            ema_params.data = self.update_average(old_weight, up_weight)
 
-        self.down2 = DownBlock(in_channels=128, out_channels=256, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
+    def update_average(self, old, new):
+        if old is None:
+            return new
+        return old * self.beta + (1 - self.beta) * new
 
-        self.down3 = DownBlock(in_channels=256, out_channels=512, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
-        
-        self.bn1 = ConvBlock(in_channels=512, out_channels=1024)
-        self.bn2 = ConvBlock(in_channels=1024, out_channels=1024, residual=True)
-        self.bn3 = ConvBlock(in_channels=1024, out_channels=512)
+    @torch.no_grad()
+    def step_ema(self, model):
+        if self.step < self.step_start_ema:
+            self.reset_parameters(model)
+            self.step += 1
+            return
+        self.update_model_average(model)
+        self.step += 1
 
-        self.up1 = UpBlock(in_channels=512 + 256, out_channels=256, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
-        self.up2 = UpBlock(in_channels=256 + 128, out_channels=128, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
-        self.up3 = UpBlock(in_channels=128 + 64, out_channels=64, kernel_size=3, time_emb_dim=time_emb_dim, text_emb_dim=text_emb_dim)
-
-        self.proj = nn.Sequential(
-            ConvBlock(in_channels=64, out_channels=64, residual=True),
-            nn.Conv2d(in_channels=64, out_channels=out_channels, kernel_size=1),
-        )
-
-    def forward(self, x, time_emb, text_emb):
-        x1 = self.conv(x)
-
-        x2 = self.down1(x1, time_emb, text_emb)
-        #x2 = self.attn1(x2)
-
-        x3 = self.down2(x2, time_emb, text_emb)
-        #x3 = self.attn2(x3)
-
-        x4 = self.down3(x3, time_emb, text_emb)
-        #x4 = self.attn3(x4)
-
-        x = self.bn1(x4)
-        x = self.bn2(x)
-        x = self.bn3(x)
-
-        x = self.up1(x, time_emb, text_emb, x3)
-        #x = self.attn4(x)
-
-        x = self.up2(x, time_emb, text_emb, x2)
-        #x = self.attn5(x)
-
-        x = self.up3(x, time_emb, text_emb, x1)
-        #x = self.attn6(x)
-
-        return self.proj(x)
+    def reset_parameters(self, current_model):
+        for current_params, ema_params in zip(current_model.parameters(), self.ema_model.parameters()):
+            old_weight, up_weight = ema_params.data, current_params.data
+            ema_params.data = up_weight

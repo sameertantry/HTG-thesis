@@ -16,7 +16,7 @@ from pathlib import Path
 from handwritten_generation.datasets.tokenizer import build_tokenizer
 
 
-class Text2ImageDataset(Dataset):
+class IAMLinesDataset(Dataset):
     def __init__(self, data: pd.DataFrame, config: DictConfig, is_train: bool = True):
         self.config = config
         self.is_train = is_train
@@ -45,7 +45,7 @@ class Text2ImageDataset(Dataset):
         ])
         self.postprocess = v2.Compose([
             v2.Lambda(lambda image: image * torch.tensor(self.config.preprocessor.normalize.std) + torch.tensor(self.config.preprocessor.normalize.mean)),
-            v2.ToPILImage(),
+            #v2.ToPILImage(),
         ])
 
     def _rescale(self, image_tensor: torch.FloatTensor) -> torch.FloatTensor:
@@ -87,6 +87,47 @@ class Text2ImageDataset(Dataset):
 
         return torch.LongTensor(self.tokenized_data[idx]), image
 
+
+class IAMWordsDataset(Dataset):
+    def __init__(self, config: DictConfig, data: pd.DataFrame, is_train: bool = True):
+        super().__init__()
+
+        self.config = config
+        self.is_train = is_train
+
+        data = data.fillna("None")
+        self.tokenizer = build_tokenizer(data["word"])
+        self.data = data
+        self.tokenized_data = self.tokenizer.encode(data["word"])
+
+        self.preprocess = v2.Compose(
+            [
+                v2.ToImage(),
+                v2.ToDtype(torch.uint8, scale=True),
+            ]
+        )
+        self.normalize = v2.Compose(
+            [
+                v2.ToDtype(dtype=torch.float32, scale=True), 
+                v2.Normalize(mean=self.config.preprocessor.normalize.mean, std=self.config.preprocessor.normalize.std),
+            ]
+        )
+        self.postprocess = v2.Compose([
+            v2.Lambda(lambda image: image * torch.tensor(self.config.preprocessor.normalize.std) + torch.tensor(self.config.preprocessor.normalize.mean)),
+            #v2.ToPILImage(),
+        ])
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx: int) -> tuple[torch.LongTensor, torch.FloatTensor]:
+        row = self.data.iloc[idx]
+        image = Image.open(row["filename"])
+        image = self.preprocess(image)
+
+        return torch.LongTensor(self.tokenized_data[idx]), self.normalize(image)
+
+
 def collate_fn(batch: list[tuple[torch.LongTensor, torch.FloatTensor]], pad_idx: int) -> tuple[torch.LongTensor, torch.FloatTensor]:
     tokens_batch = [None,] * len(batch)
     images_batch = [None,] * len(batch)
@@ -109,11 +150,20 @@ def build_dataset_from_config(config: DictConfig, is_train: bool) -> Dataset:
 
     data = pd.concat(data)
 
-    return Text2ImageDataset(
-        data=data,
-        config=config,
-        is_train=is_train,
-    )
+    if config.name == "lines":
+        return IAMLinesDataset(
+            data=data,
+            config=config,
+            is_train=is_train,
+        )
+    elif config.name == "words":
+        return IAMWordsDataset(
+            data=data,
+            config=config,
+            is_train=is_train,
+        )
+    else:
+        raise ValueError("Unsupported dataset")
         
 
 def build_dataloader_from_config(config: DictConfig, is_train: bool = True) -> DataLoader:

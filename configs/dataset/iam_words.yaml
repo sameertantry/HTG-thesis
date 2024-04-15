@@ -1,5 +1,6 @@
+name: "words"
+
 preprocessor:
-  margin: 10
   normalize:
     mean:
     - 0.5
@@ -11,15 +12,17 @@ preprocessor:
     - 1.5
     p: 0.7
     fill: 255
-  h: 56
-  w: 448
+
+  c: 1
+  h: 64
+  w: 256
 
   random_affine:
     degrees: 5
     fill: 255
 
 datasets:
-- "data/train.csv"
+- "data/words_train_df_processed.csv"
 
 dataloader:
   batch_size: 128

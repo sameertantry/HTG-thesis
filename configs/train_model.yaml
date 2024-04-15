@@ -1,0 +1,9 @@
+defaults:
+  - _self_
+  - dataset: iam_words
+  - experiment: scratch
+  - model: diffusion
+
+experiment:
+    num_log_epochs: 10
+    num_log_images: 8

@@ -1,0 +1,17 @@
+optimizer:
+  type: "adam"
+  params:
+    lr: 0.001
+
+scheduler:
+  type: "reduce_on_plateu"
+  params:
+    mode: "min"
+    factor: 0.1
+    patience: 5
+    threshold: 0.001
+    min_lr: 0.0000001
+
+seed: 69
+
+num_epochs: 100
