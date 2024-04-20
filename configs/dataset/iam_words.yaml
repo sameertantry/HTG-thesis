@@ -25,6 +25,6 @@ datasets:
 - "data/words_train_df_processed.csv"
 
 dataloader:
-  batch_size: 128
+  batch_size: 160
   num_workers: 16
   pin_memory: True

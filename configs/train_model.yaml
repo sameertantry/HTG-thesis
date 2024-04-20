@@ -5,5 +5,5 @@ defaults:
   - model: diffusion
 
 experiment:
-    num_log_epochs: 10
+    num_log_epochs: 50
     num_log_images: 8

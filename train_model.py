@@ -135,6 +135,8 @@ def main(hydra_config: DictConfig):
             validation_text_batch=validation_text_batch
         )
 
+        torch.save({"model_state_dict": model.state_dict()}, f"weights/{logger.log_dir}.pth")
+
 
 if __name__ == "__main__":
     main()

@@ -65,8 +65,8 @@ class Diffusion(nn.Module):
         return self.model(x, time_emb, text_emb)
 
     def add_noise_to_images(self, x, t):
-        sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t]).view(-1, 1, 1, 1)
-        sqrt_symmetric_alpha_hat = torch.sqrt(1 - self.alpha_hat[t]).view(-1, 1, 1, 1)
+        sqrt_alpha_hat = torch.sqrt(self.alpha_hat[t])[:, None, None, None]
+        sqrt_symmetric_alpha_hat = torch.sqrt(1 - self.alpha_hat[t])[:, None, None, None]
 
         noise = torch.randn_like(x)
         noise_images = sqrt_alpha_hat * x + sqrt_symmetric_alpha_hat * noise
