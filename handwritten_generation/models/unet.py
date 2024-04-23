@@ -19,13 +19,13 @@ class DownBlock(nn.Module):
         return self.down(x)
 
 class UpBlock(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, kernel_size: int = 3):
+    def __init__(self, in_channels: int, out_channels: int, res_channels: int, kernel_size: int = 3):
         super().__init__()
 
         self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=True)
         self.convs = nn.Sequential(
-            ConvBlock(in_channels=in_channels, out_channels=in_channels, kernel_size=kernel_size, residual=True),
-            ConvBlock(in_channels=in_channels, out_channels=out_channels, kernel_size=kernel_size),
+            ConvBlock(in_channels=in_channels + res_channels, out_channels=in_channels + res_channels, kernel_size=kernel_size, residual=True),
+            ConvBlock(in_channels=in_channels + res_channels, out_channels=out_channels, kernel_size=kernel_size),
         )
 
     def forward(self, x, res_x):
@@ -57,9 +57,9 @@ class PatchedCrossAttentionBasedCondition(CrossAttentionBasedCondition):
         super().__init__(context_hidden_dim=context_hidden_dim, num_channels=num_channels, dropout=dropout)
 
         self.patch_size = patch_size
-        self.patchify = nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=patch_size, stride=patch_size)
-        self.depatchify = nn.ConvTranspose2d(in_channels=num_channels, out_channels=num_channels, kernel_size=patch_size, stride=patch_size)
-        #self.depatchify = nn.Upsample(scale_factor=patch_size, mode="bilinear", align_corners=True)
+        self.patchify = nn.Identity() if patch_size == 1 else nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=patch_size, stride=patch_size)
+        self.depatchify = nn.Identity() if patch_size == 1 else nn.ConvTranspose2d(in_channels=num_channels, out_channels=num_channels, kernel_size=patch_size, stride=patch_size)
+        #self.depatchify = nn.Identity() if patch_size == 1 else nn.Upsample(scale_factor=patch_size, mode="bilinear", align_corners=True)
 
     def forward(self, x, context):
         x = self.patchify(x)
@@ -102,9 +102,9 @@ class UNet(nn.Module):
         )
         
         self.up = nn.ModuleList([
-            UpBlock(in_channels=512 + 256, out_channels=256),
-            UpBlock(in_channels=256 + 128, out_channels=128),
-            UpBlock(in_channels=128 + 64, out_channels=64),
+            UpBlock(in_channels=512, out_channels=256, res_channels=256),
+            UpBlock(in_channels=256, out_channels=128, res_channels=128),
+            UpBlock(in_channels=128, out_channels=64, res_channels=64),
         ])
         
         self.time_condition = nn.ModuleList([
@@ -144,8 +144,6 @@ class UNet(nn.Module):
         x3 = self.text_condition[2](x3, context)
         x3 = self.time_condition[2](x3, time_emb)
         x = self.down[2](x3)
-
-        x = self.bottleneck(x)
 
         x = self.text_condition[3](x, context)
         x = self.time_condition[3](x, time_emb)

@@ -101,7 +101,23 @@ def main(hydra_config: DictConfig):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Device used: {device}")
 
-    model = Diffusion(model_config, img_size=(dataset_config.preprocessor.c, dataset_config.preprocessor.h, dataset_config.preprocessor.w), vocab_size=vocab_size, max_seq_len=max_seq_len)
+    model = Diffusion(
+        model_config,
+        img_size=(dataset_config.preprocessor.c, dataset_config.preprocessor.h, dataset_config.preprocessor.w),
+        vocab_size=vocab_size,
+        max_seq_len=max_seq_len
+    )
+
+    model.to(device)
+    if model_config.compile:
+        print("Model is compiled")
+        model = torch.compile(model)
+
+    if experiment_config.from_checkpoint:
+        print("Checkpoint is used")
+        weights = torch.load(experiment_config.checkpoint_path)
+        print(model.load_state_dict(weights["model_state_dict"]))
+    
     optimizer = build_optimizer_from_config(experiment_config.optimizer, model)
     scheduler = build_scheduler_from_config(experiment_config.scheduler, optimizer)
     criterion = nn.MSELoss()
@@ -109,10 +125,7 @@ def main(hydra_config: DictConfig):
     num_params = get_model_size(model)
     print(f"Model parameters number: {num_params:,d}")
 
-    model.to(device)
-    if model_config.compile:
-        print("Model is compiled")
-        model = torch.compile(model)
+    
 
     validation_text_batch, _ = next(iter(dataloader))
     if validation_text_batch.size(0) < experiment_config.num_log_images:
@@ -134,6 +147,8 @@ def main(hydra_config: DictConfig):
             logger=logger,
             validation_text_batch=validation_text_batch
         )
+
+        torch.save({"model_state_dict": model.state_dict()}, f"weights/{logger.log_dir}.pth")
 
 
 if __name__ == "__main__":

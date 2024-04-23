@@ -5,5 +5,7 @@ defaults:
   - model: diffusion
 
 experiment:
-    num_log_epochs: 10
+    num_log_epochs: 50
     num_log_images: 8
+    from_checkpoint: true
+    checkpoint_path: "weights/runs/Apr20_01-58-55_research-cluster-tantri-2esamir.pth"
