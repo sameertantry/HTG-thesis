@@ -1,1 +1,1 @@
-# Handwritten Text Generation using Diffusion Models - Thesis
+# Handwritten Text Generation using Diffusion Models - Bachelor Thesis
