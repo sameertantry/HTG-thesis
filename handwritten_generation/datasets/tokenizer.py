@@ -2,20 +2,18 @@ import torch
 
 from collections.abc import Iterable
 
+
 class CharLevelTokenizer:
     def __init__(
-        self,
-        char2idx: dict[str, int],
-        idx2char: list[str], 
-        pad: str = "<pad>"
-    ):        
+        self, char2idx: dict[str, int], idx2char: list[str], pad: str = "<pad>"
+    ):
         self.char2idx = char2idx
         self.idx2char = idx2char
-        
+
         if pad not in self.char2idx:
             self.char2idx[pad] = len(self.char2idx)
-            self.idx2char.append(pad)            
-        
+            self.idx2char.append(pad)
+
         self.pad = pad
         self.pad_idx = self.char2idx[self.pad]
 
@@ -52,7 +50,7 @@ class CharLevelTokenizer:
             for idx in seq:
                 decoded_seq.append(self.idx2char[idx])
 
-        return ''.join(decoded_seq)
+        return "".join(decoded_seq)
 
     def decode(self, seq_batch: list[list[int]] | list[int]) -> list[str]:
         if isinstance(seq_batch[0], int):
@@ -71,14 +69,19 @@ class CharLevelTokenizer:
 
         return decoded_batch
 
-def build_tokenizer(data: Iterable[str], pad: str = "<pad>", pad_idx: int = 0) -> CharLevelTokenizer:
+
+def build_tokenizer(
+    data: Iterable[str], pad: str = "<pad>", pad_idx: int = 0
+) -> CharLevelTokenizer:
     char2idx = {pad: pad_idx}
     for seq in data:
         for char in seq:
             if char not in char2idx:
                 char2idx[char] = len(char2idx)
 
-    idx2char = [None,] * len(char2idx)
+    idx2char = [
+        None,
+    ] * len(char2idx)
     for char, idx in char2idx.items():
         idx2char[idx] = char
 

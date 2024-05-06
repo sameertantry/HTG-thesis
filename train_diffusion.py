@@ -14,7 +14,10 @@ from omegaconf import OmegaConf, DictConfig
 from tqdm import tqdm
 
 from handwritten_generation.models.diffusion import Diffusion
-from handwritten_generation.models.optimizers import build_optimizer_from_config, build_scheduler_from_config
+from handwritten_generation.models.optimizers import (
+    build_optimizer_from_config,
+    build_scheduler_from_config,
+)
 from handwritten_generation.datasets.dataset import build_dataloader_from_config
 
 
@@ -24,6 +27,7 @@ def get_model_size(model):
         numel += p.numel()
 
     return numel
+
 
 def set_seed(seed: int):
     random.seed(seed)
@@ -39,7 +43,7 @@ def train_step(model, text_batch, image_batch, criterion, optimizer, device):
 
     t = model.time_emb.sample(t)
     text_batch = model.text_emb(text_batch)
-    
+
     predicted_noise = model(x_t, t, text_batch)
 
     loss = criterion(noise, predicted_noise)
@@ -49,16 +53,30 @@ def train_step(model, text_batch, image_batch, criterion, optimizer, device):
 
     return loss.detach().item()
 
-def train(model, dataloader, criterion, optimizer, scheduler, device, num_epochs, num_log_epochs, logger, validation_text_batch=None):
+
+def train(
+    model,
+    dataloader,
+    criterion,
+    optimizer,
+    scheduler,
+    device,
+    num_epochs,
+    num_log_epochs,
+    logger,
+    validation_text_batch=None,
+):
     model.train()
 
     for epoch in range(num_epochs):
         epoch_loss = 0.0
-        
-        for text_batch, images_batch in tqdm(dataloader, total=len(dataloader)):
-            
+
+        for images_batch, text_batch, _ in tqdm(dataloader, total=len(dataloader)):
+
             text_batch, images_batch = text_batch.to(device), images_batch.to(device)
-            loss = train_step(model, text_batch, images_batch, criterion, optimizer, device)
+            loss = train_step(
+                model, text_batch, images_batch, criterion, optimizer, device
+            )
             epoch_loss += loss
 
         epoch_loss /= len(dataloader)
@@ -66,7 +84,7 @@ def train(model, dataloader, criterion, optimizer, scheduler, device, num_epochs
         print(f"Loss:  {epoch_loss}")
         logger.add_scalar("Epoch loss", epoch_loss, epoch + 1)
         for param_group in optimizer.param_groups:
-            logger.add_scalar("Learning rate", param_group['lr'], epoch + 1)
+            logger.add_scalar("Learning rate", param_group["lr"], epoch + 1)
 
         if scheduler:
             scheduler.step(epoch_loss)
@@ -75,10 +93,15 @@ def train(model, dataloader, criterion, optimizer, scheduler, device, num_epochs
             with torch.no_grad():
                 generated_images = model.sample(validation_text_batch, device)
                 for i in range(len(validation_text_batch)):
-                    text = dataloader.dataset.tokenizer.decode_sequence(validation_text_batch[i])
-                    logger.add_image(f"Images/{text}/Epoch_{epoch + 1}", dataloader.dataset.postprocess(generated_images[i].cpu()), epoch + 1)
+                    text = dataloader.dataset.tokenizer.decode_sequence(
+                        validation_text_batch[i]
+                    )
+                    logger.add_image(
+                        f"Images/{text}/Epoch_{epoch + 1}",
+                        dataloader.dataset.postprocess(generated_images[i].cpu()),
+                        epoch + 1,
+                    )
                 del generated_images
-
 
 
 @hydra.main(version_base=None, config_path="configs/", config_name="train_model")
@@ -88,7 +111,7 @@ def main(hydra_config: DictConfig):
     experiment_config = hydra_config.experiment
     model_config = hydra_config.model
     dataset_config = hydra_config.dataset
-    
+
     set_seed(experiment_config.seed)
 
     dataloader = build_dataloader_from_config(dataset_config)
@@ -103,9 +126,13 @@ def main(hydra_config: DictConfig):
 
     model = Diffusion(
         model_config,
-        img_size=(dataset_config.preprocessor.c, dataset_config.preprocessor.h, dataset_config.preprocessor.w),
+        img_size=(
+            dataset_config.preprocessor.c,
+            dataset_config.preprocessor.h,
+            dataset_config.preprocessor.w,
+        ),
         vocab_size=vocab_size,
-        max_seq_len=max_seq_len
+        max_seq_len=max_seq_len,
     )
 
     model.to(device)
@@ -117,20 +144,22 @@ def main(hydra_config: DictConfig):
         print("Checkpoint is used")
         weights = torch.load(experiment_config.checkpoint_path)
         print(model.load_state_dict(weights["model_state_dict"]))
-    
+
     optimizer = build_optimizer_from_config(experiment_config.optimizer, model)
     scheduler = build_scheduler_from_config(experiment_config.scheduler, optimizer)
     criterion = nn.MSELoss()
-    
+
     num_params = get_model_size(model)
     print(f"Model parameters number: {num_params:,d}")
 
-    
-
     validation_text_batch, _ = next(iter(dataloader))
     if validation_text_batch.size(0) < experiment_config.num_log_images:
-        raise ValueError(f"Number of images to save for logs is larger than batch size. Received: {experiment_config.num_log_images}. Batch size: {validation_text_batch.size(0)}")
-    validation_text_batch = validation_text_batch[:experiment_config.num_log_images].to(device)
+        raise ValueError(
+            f"Number of images to save for logs is larger than batch size. Received: {experiment_config.num_log_images}. Batch size: {validation_text_batch.size(0)}"
+        )
+    validation_text_batch = validation_text_batch[
+        : experiment_config.num_log_images
+    ].to(device)
 
     with SummaryWriter() as logger:
         with open(f"run_configs/{logger.log_dir}_config.yaml", "x") as f:
@@ -145,10 +174,12 @@ def main(hydra_config: DictConfig):
             num_epochs=experiment_config.num_epochs,
             num_log_epochs=experiment_config.num_log_epochs,
             logger=logger,
-            validation_text_batch=validation_text_batch
+            validation_text_batch=validation_text_batch,
         )
 
-        torch.save({"model_state_dict": model.state_dict()}, f"weights/{logger.log_dir}.pth")
+        torch.save(
+            {"model_state_dict": model.state_dict()}, f"weights/{logger.log_dir}.pth"
+        )
 
 
 if __name__ == "__main__":
