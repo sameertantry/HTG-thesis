@@ -1,17 +1,16 @@
 import pandas as pd
 
 import torch
-import torchvision
 
 from torchvision.transforms import v2
 from torchvision.transforms.v2 import functional as TF2
 from torch.utils.data import Dataset, DataLoader
 
 from PIL import Image
-
 from omegaconf import DictConfig, OmegaConf
-
 from pathlib import Path
+
+from handwritten_generation.datasets.tokenizer import build_tokenizer, CharLevelTokenizer
 
 
 class IAMWordsDataset(Dataset):
@@ -47,26 +46,34 @@ class IAMWordsDataset(Dataset):
     def __getitem__(self, idx: int) -> tuple[torch.LongTensor, torch.FloatTensor]:
         image = Image.open(self.data["filename"][idx])
         image = self.preprocess(image)
+        tokens_ids = torch.LongTensor(self.data["tokenized_text"][idx])
 
-        return torch.LongTensor(self.data["tokenized_text"][idx]), self.normalize(image)
+        return self.normalize(image), tokens_ids, len(tokens_ids)
 
 
-def collate_fn(batch: list[tuple[torch.LongTensor, torch.FloatTensor]], pad_idx: int) -> tuple[torch.LongTensor, torch.FloatTensor]:
-    tokens_batch = [None,] * len(batch)
+def collate_fn(batch: list[tuple[torch.FloatTensor, torch.LongTensor, int]], pad_idx: int, max_seq_len: int = None) -> tuple[torch.LongTensor, torch.FloatTensor]:
     images_batch = [None,] * len(batch)
-    for i, (tokens_seq, image) in enumerate(batch):
-        tokens_batch[i] = tokens_seq
+    tokens_ids_batch = [None,] * len(batch)
+    tokens_ids_len_batch = [0,] * len(batch)
+
+    for i, (image, tokens_ids_seq, tokens_ids_len) in enumerate(batch):
         images_batch[i] = image
+        tokens_ids_batch[i] = tokens_ids_seq
+        tokens_ids_len_batch[i] = tokens_ids_len
 
-    max_len = max([len(seq) for seq in tokens_batch])
-    tokens_matrix = torch.zeros(len(batch), max_len, dtype=torch.long) + pad_idx
-    for i, tokens_seq in enumerate(tokens_batch):
-        tokens_matrix[i, :len(tokens_seq)] = tokens_seq
+    max_len = max_seq_len if max_seq_len else max([len(seq) for seq in tokens_ids_batch])
+    tokens_ids_matrix = torch.zeros(len(batch), max_len, dtype=torch.long) + pad_idx
+    for i, tokens_ids_seq in enumerate(tokens_ids_batch):
+        tokens_ids_matrix[i, :len(tokens_ids_seq)] = tokens_ids_seq
 
-    return tokens_matrix, torch.stack(images_batch)
+    return torch.stack(images_batch), tokens_ids_matrix, torch.LongTensor(tokens_ids_len_batch)
 
 
 def create_annotations(annotations_path: Path, images_dir: Path) -> dict[str, list[str]]:
+    """
+    This function parses annotation file
+    and creates dict with filename and text convenient use.
+    """
     annotations = {"filename": [], "text": []}
     with open(annotations_path) as f:
         for line in f.readlines():
@@ -77,7 +84,7 @@ def create_annotations(annotations_path: Path, images_dir: Path) -> dict[str, li
             except:
                 continue
             annotations["filename"].append(image_filename)
-            annotations["text"].append(text)
+            annotations["text"].append(text.strip())
 
     return annotations
 
@@ -101,9 +108,15 @@ def build_dataset_from_config(config: DictConfig, is_train: bool) -> Dataset:
 def build_dataloader_from_config(config: DictConfig, is_train: bool = True) -> DataLoader:
     dataset = build_dataset_from_config(config=config, is_train=is_train)
 
+    max_seq_len = config.max_seq_len if config.max_seq_len > 0 else None
+    dataset_max_seq_len = max([len(s) for s in dataset.data["tokenized_text"]])
+    
+    if max_seq_len is not None and max_seq_len < dataset_max_seq_len:
+        raise ValueError(f"Max sequence length in dataset is greater than in config. Received from config: {max_seq_len}, in dataset: {dataset_max_seq_len}")
+
     return DataLoader(
         dataset,
-        collate_fn=lambda batch: collate_fn(batch=batch, pad_idx=dataset.tokenizer.pad_idx),
+        collate_fn=lambda batch: collate_fn(batch=batch, pad_idx=dataset.tokenizer.pad_idx, max_seq_len=config.max_seq_len),
         shuffle=is_train,
         **config.dataloader,
     )

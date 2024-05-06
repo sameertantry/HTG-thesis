@@ -24,6 +24,8 @@ preprocessor:
 annotations_path: "/content/gan.iam.tr_va.gt.filter27"
 images_dir: "/content/word_stylist_images/generated_images/images/"
 
+max_seq_len: 8
+
 dataloader:
   batch_size: 16
   num_workers: 0

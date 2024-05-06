@@ -71,8 +71,8 @@ class CharLevelTokenizer:
 
         return decoded_batch
 
-def build_tokenizer(data: Iterable[str]) -> CharLevelTokenizer:
-    char2idx = {}
+def build_tokenizer(data: Iterable[str], pad: str = "<pad>", pad_idx: int = 0) -> CharLevelTokenizer:
+    char2idx = {pad: pad_idx}
     for seq in data:
         for char in seq:
             if char not in char2idx:
@@ -82,4 +82,4 @@ def build_tokenizer(data: Iterable[str]) -> CharLevelTokenizer:
     for char, idx in char2idx.items():
         idx2char[idx] = char
 
-    return CharLevelTokenizer(char2idx=char2idx, idx2char=idx2char)
+    return CharLevelTokenizer(char2idx=char2idx, idx2char=idx2char, pad=pad)
