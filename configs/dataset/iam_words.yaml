@@ -21,10 +21,10 @@ preprocessor:
     degrees: 5
     fill: 255
 
-datasets:
-- "data/words_train_df_processed.csv"
+annotations_path: "/content/gan.iam.tr_va.gt.filter27"
+images_dir: "/content/word_stylist_images/generated_images/images/"
 
 dataloader:
-  batch_size: 160
-  num_workers: 16
+  batch_size: 16
+  num_workers: 0
   pin_memory: True
