@@ -10,9 +10,12 @@ from handwritten_generation.tools.utils import crop_text, pad_right
 def parse_args():
     parser = argparse.ArgumentParser(description="Remove white borders")
     parser.add_argument("--input_dir", type=Path, help="Images directory path")
-    parser.add_argument("--output_dir", type=Path, help="Directory to store processed images")
+    parser.add_argument(
+        "--output_dir", type=Path, help="Directory to store processed images"
+    )
 
     return parser.parse_args()
+
 
 def main(input_dir: Path, output_dir: Path):
     output_dir.mkdir(exist_ok=True)
@@ -23,7 +26,7 @@ def main(input_dir: Path, output_dir: Path):
         image = pad_right(image)
         image = Image.fromarray(image)
         image.save(output_dir / image_path.name)
-    
+
 
 if __name__ == "__main__":
     args = parse_args()

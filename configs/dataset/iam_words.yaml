@@ -1,30 +1,35 @@
-name: "words"
+max_seq_len: 8
 
-preprocessor:
-  normalize:
-    mean:
-    - 0.5
-    std:
-    - 0.5
-  random_zoom_out:
-    side_range:
-    - 1
-    - 1.5
-    p: 0.7
-    fill: 255
+train_dataset:
+  preprocessor:
+    normalize:
+      mean:
+      - 0.5
+      std:
+      - 0.5
 
-  c: 1
-  h: 64
-  w: 256
+  dataset_parts:
+    - annotations_path: "data/gan.iam.tr_va.gt.filter27"
+      images_dir: "data/mock_dataset"
 
-  random_affine:
-    degrees: 5
-    fill: 255
+  dataloader:
+    batch_size: 2
+    num_workers: 0
+    pin_memory: True
 
-datasets:
-- "data/words_train_df_processed.csv"
+test_dataset:
+  preprocessor:
+    normalize:
+      mean:
+      - 0.5
+      std:
+      - 0.5
 
-dataloader:
-  batch_size: 160
-  num_workers: 16
-  pin_memory: True
+  dataset_parts:
+    - annotations_path: "data/gan.iam.tr_va.gt.filter27"
+      images_dir: "data/mock_dataset"
+
+  dataloader:
+    batch_size: 2
+    num_workers: 0
+    pin_memory: True

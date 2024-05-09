@@ -14,26 +14,31 @@ class ResConnection(nn.Module):
     def forward(self, x):
         return x + self.module(x)
 
+
 class PositionalEncoding(nn.Module):
     def __init__(self, emb_dim: int, max_seq_len: int):
         super().__init__()
 
         pe = torch.zeros(max_seq_len, emb_dim)
         positions = torch.arange(0, max_seq_len).unsqueeze(1)
-        div = torch.exp(-torch.log(torch.tensor(10000)) * torch.arange(0, emb_dim, 2) / emb_dim)  # sin (pos / 10000 ** (2i / emb_dim))
+        div = torch.exp(
+            -torch.log(torch.tensor(10000)) * torch.arange(0, emb_dim, 2) / emb_dim
+        )  # sin (pos / 10000 ** (2i / emb_dim))
         pe[:, 0::2] = torch.sin(positions * div)
         pe[:, 1::2] = torch.cos(positions * div)
         self.register_buffer("pe", pe)
 
     def forward(self, x):
-        return x + self.pe[:x.size(1), :]
+        return x + self.pe[: x.size(1), :]
 
     def sample(self, x):
         return self.pe[x, :]
 
 
 class Attention(nn.Module):
-    def __init__(self, hidden_dim: int, q_in: int = None, k_in: int = None, v_in: int = None):
+    def __init__(
+        self, hidden_dim: int, q_in: int = None, k_in: int = None, v_in: int = None
+    ):
         super().__init__()
 
         self.hidden_dim = hidden_dim
@@ -61,18 +66,23 @@ class TokenEmbedding(nn.Module):
     def forward(self, x):
         return self.pe(self.emb(x))
 
+
 class TextEmbedding(nn.Module):
     def __init__(self, vocab_size: int, emb_dim: int, max_seq_len: int):
         super().__init__()
-        self.emb = TokenEmbedding(vocab_size=vocab_size, emb_dim=emb_dim, max_seq_len=max_seq_len)
+        self.emb = TokenEmbedding(
+            vocab_size=vocab_size, emb_dim=emb_dim, max_seq_len=max_seq_len
+        )
 
     def forward(self, x):
         raise NotImplementedError("Implement 'forward' method in an inheritor")
-        
+
 
 class AvgTextEmbedding(TextEmbedding):
     def __init__(self, vocab_size: int, emb_dim: int, max_seq_len: int):
-        super().__init__(vocab_size=vocab_size, emb_dim=emb_dim, max_seq_len=max_seq_len)
+        super().__init__(
+            vocab_size=vocab_size, emb_dim=emb_dim, max_seq_len=max_seq_len
+        )
         self.pooling = nn.AdaptiveAvgPool1d(1)
 
     def forward(self, x):
@@ -81,7 +91,9 @@ class AvgTextEmbedding(TextEmbedding):
 
 class AttentionTextEmbbeding(TextEmbedding):
     def __init__(self, vocab_size: int, emb_dim: int, max_seq_len: int):
-        super().__init__(vocab_size=vocab_size, emb_dim=emb_dim, max_seq_len=max_seq_len)
+        super().__init__(
+            vocab_size=vocab_size, emb_dim=emb_dim, max_seq_len=max_seq_len
+        )
         self.attention = SelfAttention(hidden_dim=emb_dim)
 
     def forward(self, x):
@@ -90,17 +102,36 @@ class AttentionTextEmbbeding(TextEmbedding):
 
 
 class ConvBlock(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, mid_channels: int = None, kernel_size: int = 3, residual: bool = False):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        mid_channels: int = None,
+        kernel_size: int = 3,
+        residual: bool = False,
+    ):
         super().__init__()
-        
+
         mid_channels = mid_channels if mid_channels else in_channels
         padding = kernel_size // 2
 
         self.convs = nn.Sequential(
-            nn.Conv2d(in_channels=in_channels, out_channels=mid_channels, kernel_size=kernel_size, padding=padding, bias=False),
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=mid_channels,
+                kernel_size=kernel_size,
+                padding=padding,
+                bias=False,
+            ),
             nn.GroupNorm(1, mid_channels),
             nn.GELU(),
-            nn.Conv2d(in_channels=mid_channels, out_channels=out_channels, kernel_size=kernel_size, padding=padding, bias=False),
+            nn.Conv2d(
+                in_channels=mid_channels,
+                out_channels=out_channels,
+                kernel_size=kernel_size,
+                padding=padding,
+                bias=False,
+            ),
             nn.GroupNorm(1, out_channels),
         )
 
@@ -115,13 +146,13 @@ class ConvBlock(nn.Module):
 class SelfAttention(nn.Module):
     def __init__(self, hidden_dim: int, dropout: float = 0.1, dim_extend: int = 4):
         super().__init__()
-        
+
         self.ln1 = nn.LayerNorm(hidden_dim)
         self.ln2 = nn.LayerNorm(hidden_dim)
         self.ln3 = nn.LayerNorm(hidden_dim)
 
         self.attention = Attention(hidden_dim)
-        
+
         self.mlp = nn.Sequential(
             nn.Linear(hidden_dim, dim_extend * hidden_dim),
             nn.ReLU(),
@@ -142,22 +173,24 @@ class SelfAttention(nn.Module):
 class CrossAttention(nn.Module):
     def __init__(self, hidden_dim: int, context_hidden_dim: int, dropout=0.1):
         super().__init__()
-        
+
         self.ln1 = nn.LayerNorm(hidden_dim)
         self.ln2 = nn.LayerNorm(hidden_dim)
         self.ln3 = nn.LayerNorm(hidden_dim)
         self.ln4 = nn.LayerNorm(hidden_dim)
-        
+
         self.self_attention = Attention(hidden_dim=hidden_dim)
-        self.cross_attention = Attention(hidden_dim=hidden_dim, k_in=context_hidden_dim, v_in=context_hidden_dim)
+        self.cross_attention = Attention(
+            hidden_dim=hidden_dim, k_in=context_hidden_dim, v_in=context_hidden_dim
+        )
 
         self.mlp = nn.Sequential(
             nn.Linear(hidden_dim, 4 * hidden_dim),
             nn.ReLU(),
             nn.Dropout(p=dropout),
-            nn.Linear(4 * hidden_dim, hidden_dim)
+            nn.Linear(4 * hidden_dim, hidden_dim),
         )
-        
+
     def forward(self, x, context):
         x_ln = self.ln1(x)
         x = x + self.self_attention(query=x_ln, key=x_ln, value=x_ln)
@@ -165,9 +198,8 @@ class CrossAttention(nn.Module):
         x = x + self.cross_attention(query=x, key=context, value=context)
         x = self.ln3(x)
         x = x + self.mlp(x)
-        
-        return self.ln4(x)
 
+        return self.ln4(x)
 
 
 class EMA:
@@ -180,7 +212,9 @@ class EMA:
         self.step_start_ema = step_start_ema
 
     def update_model_average(self, current_model):
-        for current_params, ema_params in zip(current_model.parameters(), self.ema_model.parameters()):
+        for current_params, ema_params in zip(
+            current_model.parameters(), self.ema_model.parameters()
+        ):
             old_weight, up_weight = ema_params.data, current_params.data
             ema_params.data = self.update_average(old_weight, up_weight)
 
@@ -199,6 +233,8 @@ class EMA:
         self.step += 1
 
     def reset_parameters(self, current_model):
-        for current_params, ema_params in zip(current_model.parameters(), self.ema_model.parameters()):
+        for current_params, ema_params in zip(
+            current_model.parameters(), self.ema_model.parameters()
+        ):
             old_weight, up_weight = ema_params.data, current_params.data
             ema_params.data = up_weight
