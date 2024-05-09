@@ -1,0 +1,8 @@
+model:
+  encoder:
+    name: "mobilenetv3_small_100.lamb_in1k"
+    num_layers: 4
+    out_channels: 512
+  rnn_hidden_size: 256
+
+compile: false
