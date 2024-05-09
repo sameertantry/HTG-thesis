@@ -96,7 +96,6 @@ def train(
             )
             metric.update(decoded_tokens, decoded_target_tokens)
             epoch_loss += loss
-            break
 
         epoch_loss /= len(dataloader)
         epoch_cer = metric.compute()
@@ -112,7 +111,6 @@ def train(
 
         if scheduler:
             scheduler.step(epoch_loss)
-        return None
 
 
 @torch.no_grad()
@@ -175,7 +173,7 @@ def main(hydra_config: DictConfig):
 
     train_dataloader = build_dataloader_from_config(
         dataset_config.train_dataset,
-        is_train=False,
+        is_train=True,
         max_seq_len=dataset_config.max_seq_len,
     )
     test_dataloader = build_dataloader_from_config(
@@ -187,6 +185,8 @@ def main(hydra_config: DictConfig):
     max_seq_len = max(len(x) for x in train_dataloader.dataset.data["tokenized_text"])
     vocab_size = len(train_dataloader.dataset.tokenizer)
 
+    print(f"Train Dataset size: {len(train_dataloader.dataset)}")
+    print(f"Test Dataset size: {len(test_dataloader.dataset)}")
     print(f"Dataset max sequence length: {max_seq_len}")
     print(f"Vocabulary size: {vocab_size}")
 

@@ -14,4 +14,4 @@ scheduler:
 
 seed: 0
 
-num_epochs: 500
+num_epochs: 10
