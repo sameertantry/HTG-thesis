@@ -1,0 +1,8 @@
+defaults:
+  - _self_
+  - dataset: iam_words
+  - experiment: scratch
+  - model: crnn
+
+experiment:
+    checkpoint_save_path: ""

@@ -5,6 +5,4 @@ model:
     out_channels: 512
   rnn_hidden_size: 256
 
-compile: true
-
-  
+compile: false

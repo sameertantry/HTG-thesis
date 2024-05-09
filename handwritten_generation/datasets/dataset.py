@@ -126,27 +126,31 @@ def create_annotations(
 
 
 def build_dataset_from_config(config: DictConfig, is_train: bool) -> Dataset:
-    data = create_annotations(Path(config.annotations_path), Path(config.images_dir))
+    data = {"filename": [], "text": []}
+    for dataset_part in config.dataset_parts:
+        annotations_part = create_annotations(
+            Path(dataset_part.annotations_path), Path(dataset_part.images_dir)
+        )
+        data["filename"] += annotations_part["filename"]
+        data["text"] += annotations_part["text"]
+
     tokenizer = build_tokenizer(data["text"])
     data["tokenized_text"] = tokenizer.encode(data["text"])
 
-    if config.name == "words":
-        return IAMWordsDataset(
-            data=data,
-            config=config,
-            tokenizer=tokenizer,
-            is_train=is_train,
-        )
-    else:
-        raise ValueError("Unsupported dataset")
+    return IAMWordsDataset(
+        data=data,
+        config=config,
+        tokenizer=tokenizer,
+        is_train=is_train,
+    )
 
 
 def build_dataloader_from_config(
-    config: DictConfig, is_train: bool = True
+    config: DictConfig, is_train: bool = True, max_seq_len: int = 0
 ) -> DataLoader:
     dataset = build_dataset_from_config(config=config, is_train=is_train)
 
-    max_seq_len = config.max_seq_len if config.max_seq_len > 0 else None
+    max_seq_len = max_seq_len if max_seq_len > 0 else None
     dataset_max_seq_len = max([len(s) for s in dataset.data["tokenized_text"]])
 
     if max_seq_len is not None and max_seq_len < dataset_max_seq_len:
@@ -159,8 +163,9 @@ def build_dataloader_from_config(
         collate_fn=lambda batch: collate_fn(
             batch=batch,
             pad_idx=dataset.tokenizer.pad_idx,
-            max_seq_len=config.max_seq_len,
+            max_seq_len=max_seq_len,
         ),
         shuffle=is_train,
+        drop_last=is_train,
         **config.dataloader,
     )

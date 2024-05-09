@@ -1,5 +1,5 @@
 import hydra
-import random
+
 import numpy as np
 
 import torch
@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import lightning as L
 
+from torch.utils.data import DataLoader
 from torch.profiler import profile, record_function, ProfilerActivity
 from torch.utils.tensorboard import SummaryWriter
 
@@ -19,23 +20,17 @@ from handwritten_generation.models.optimizers import (
     build_scheduler_from_config,
 )
 from handwritten_generation.datasets.dataset import build_dataloader_from_config
+from handwritten_generation.tools.utils import set_seed, get_model_size
 
 
-def get_model_size(model):
-    numel = 0
-    for p in model.parameters():
-        numel += p.numel()
-
-    return numel
-
-
-def set_seed(seed: int):
-    random.seed(seed)
-    torch.manual_seed(seed)
-    np.random.seed(seed)
-
-
-def train_step(model, text_batch, image_batch, criterion, optimizer, device):
+def train_step(
+    model: Diffusion,
+    text_batch: torch.Tensor,
+    image_batch: torch.Tensor,
+    criterion: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+):
     optimizer.zero_grad()
 
     t = model.sample_timestapms(text_batch.size(0), device=device)
@@ -55,16 +50,16 @@ def train_step(model, text_batch, image_batch, criterion, optimizer, device):
 
 
 def train(
-    model,
-    dataloader,
-    criterion,
-    optimizer,
-    scheduler,
-    device,
-    num_epochs,
-    num_log_epochs,
-    logger,
-    validation_text_batch=None,
+    model: Diffusion,
+    dataloader: DataLoader,
+    criterion: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
+    device: torch.device,
+    num_epochs: int,
+    num_log_epochs: int,
+    logger: SummaryWriter,
+    validation_text_batch: torch.Tensor = None,
 ):
     model.train()
 
@@ -104,7 +99,7 @@ def train(
                 del generated_images
 
 
-@hydra.main(version_base=None, config_path="configs/", config_name="train_model")
+@hydra.main(version_base=None, config_path="configs/", config_name="train_diffusion")
 def main(hydra_config: DictConfig):
     OmegaConf.set_struct(hydra_config, False)
 
@@ -115,7 +110,7 @@ def main(hydra_config: DictConfig):
     set_seed(experiment_config.seed)
 
     dataloader = build_dataloader_from_config(dataset_config)
-    max_seq_len = max(len(x) for x in dataloader.dataset.tokenized_data)
+    max_seq_len = max(len(x) for x in dataloader.dataset.data["tokenized_text"])
     vocab_size = len(dataloader.dataset.tokenizer)
 
     print(f"Max sequence length: {max_seq_len}")

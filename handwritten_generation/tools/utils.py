@@ -1,4 +1,25 @@
 import numpy as np
+import random
+import torch
+from torch.nn.utils import clip_grad_norm_
+
+
+def clip_grad(model: torch.nn.Module, grad_norm_value: float = 1.0):
+    clip_grad_norm_(model.parameters(), grad_norm_value)
+
+
+def get_model_size(model):
+    numel = 0
+    for p in model.parameters():
+        numel += p.numel()
+
+    return numel
+
+
+def set_seed(seed: int):
+    random.seed(seed)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
 
 
 def crop_text(image: np.ndarray) -> np.ndarray:

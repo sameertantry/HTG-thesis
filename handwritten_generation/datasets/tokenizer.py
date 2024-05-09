@@ -41,31 +41,34 @@ class CharLevelTokenizer:
 
         return encoded_batch
 
-    def decode_sequence(self, seq: Iterable[int]) -> str:
+    def decode_sequence(self, seq: Iterable[int], ignore_pad: bool = False) -> str:
         decoded_seq = []
         if isinstance(seq, torch.Tensor):
             for idx in seq:
+                if ignore_pad and idx.item() == self.pad_idx:
+                    continue
                 decoded_seq.append(self.idx2char[idx.item()])
         else:
             for idx in seq:
+                if ignore_pad and idx == self.pad_idx:
+                    continue
                 decoded_seq.append(self.idx2char[idx])
 
         return "".join(decoded_seq)
 
-    def decode(self, seq_batch: list[list[int]] | list[int]) -> list[str]:
+    def decode(
+        self, seq_batch: list[list[int]] | list[int], ignore_pad: bool = False
+    ) -> list[str]:
         if isinstance(seq_batch[0], int):
-            print("list 1-d")
             batch = [seq_batch]
         elif isinstance(seq_batch, torch.Tensor) and len(seq_batch.size()) == 1:
-            print("torch 1-d")
             batch = [seq_batch]
         else:
-            print("multidim")
             batch = seq_batch
 
         decoded_batch = []
         for seq in batch:
-            decoded_batch.append(self.decode_sequence(seq))
+            decoded_batch.append(self.decode_sequence(seq, ignore_pad=ignore_pad))
 
         return decoded_batch
 
