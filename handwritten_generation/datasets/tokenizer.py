@@ -1,6 +1,8 @@
 import torch
 
 from collections.abc import Iterable
+from omegaconf import OmegaConf, DictConfig
+from pathlib import Path
 
 
 class CharLevelTokenizer:
@@ -72,6 +74,27 @@ class CharLevelTokenizer:
 
         return decoded_batch
 
+def create_tokenizer_config(tokenizer: CharLevelTokenizer, config_path: Path) -> DictConfig:
+    tokenizer_config = OmegaConf.create({
+        "char2idx": tokenizer.char2idx,
+        "idx2char": tokenizer.idx2char,
+        "pad": tokenizer.pad,
+        "pad_idx": tokenizer.pad_idx,
+    })
+
+    with open(config_path, "x") as f:
+        OmegaConf.save(config=tokenizer_config, f=f.name)
+
+    return tokenizer_config
+
+def build_tokenizer_from_yaml(config_path: Path) -> CharLevelTokenizer:
+    tokenizer_config = OmegaConf.load(config_path)
+
+    return CharLevelTokenizer(
+        char2idx=tokenizer_config.char2idx,
+        idx2char=tokenizer_config.idx2char,
+        pad=toke=tokenizer_config.pad,
+    )
 
 def build_tokenizer(
     data: Iterable[str], pad: str = "<pad>", pad_idx: int = 0

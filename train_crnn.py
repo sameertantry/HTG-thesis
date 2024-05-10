@@ -24,6 +24,7 @@ from handwritten_generation.models.optimizers import (
     build_scheduler_from_config,
 )
 from handwritten_generation.datasets.dataset import build_dataloader_from_config
+from handwritten_generation.datasets.tokenizer import create_tokenizer_config
 from handwritten_generation.tools.utils import set_seed, get_model_size, clip_grad
 
 
@@ -101,7 +102,7 @@ def train(
         epoch_cer = metric.compute()
 
         print(f"Epoch:  {epoch + 1} / {num_epochs}")
-        print(f"Loss:  {epoch_loss}")
+        print(f"Epoch Loss: {epoch_loss}")
         print(f"Epoch CER: {epoch_cer}")
 
         logger.add_scalar("Epoch loss", epoch_loss, epoch + 1)
@@ -218,6 +219,9 @@ def main(hydra_config: DictConfig):
 
         with open(f"{logger.log_dir}/experiment_config.yaml", "x") as f:
             OmegaConf.save(config=hydra_config, f=f.name)
+
+        create_tokenizer_config(dataloader.dataset.tokenizer, f"{logger.log_dir}/tokenizer_config.yaml")
+
         train(
             model=model,
             dataloader=train_dataloader,
@@ -233,7 +237,7 @@ def main(hydra_config: DictConfig):
         if len(experiment_config.checkpoint_save_path) > 0:
             checkpoint_save_path = experiment_config.checkpoint_save_path
         else:
-            checkpoint_save_path = "weights/{log_filename}.pth"
+            checkpoint_save_path = f"weights/{log_filename}.pth"
 
         torch.save({"model_state_dict": model.state_dict()}, checkpoint_save_path)
 
