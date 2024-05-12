@@ -257,7 +257,7 @@ def main(hydra_config: DictConfig):
             model=model,
             dataloader=test_dataloader,
             criterion=criterion,
-            metris=metrics,
+            metrics=metrics,
             device=device,
             logger=logger,
         )
