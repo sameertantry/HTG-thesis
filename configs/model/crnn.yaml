@@ -6,3 +6,4 @@ model:
   rnn_hidden_size: 512
 
 compile: true
+init_weights_path: "model_init.pth"

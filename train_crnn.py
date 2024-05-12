@@ -236,6 +236,11 @@ def main(hydra_config: DictConfig):
     print(f"Device used: {device}")
 
     model = CRNN(config=model_config.model, num_classes=vocab_size)
+    model.load_state_dict(
+        torch.load(
+            model_config.init_weights_path,
+        )["model_state_dict"]
+    )
 
     model.to(device)
     if model_config.compile:
