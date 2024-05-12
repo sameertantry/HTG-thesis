@@ -93,7 +93,7 @@ def build_tokenizer_from_yaml(config_path: Path) -> CharLevelTokenizer:
     return CharLevelTokenizer(
         char2idx=tokenizer_config.char2idx,
         idx2char=tokenizer_config.idx2char,
-        pad=toke=tokenizer_config.pad,
+        pad=tokenizer_config.pad,
     )
 
 def build_tokenizer(

@@ -181,6 +181,7 @@ def main(hydra_config: DictConfig):
         dataset_config.test_dataset,
         is_train=False,
         max_seq_len=dataset_config.max_seq_len,
+        tokenizer=train_dataloader.dataset.tokenizer,
     )
 
     max_seq_len = max(len(x) for x in train_dataloader.dataset.data["tokenized_text"])
@@ -220,7 +221,7 @@ def main(hydra_config: DictConfig):
         with open(f"{logger.log_dir}/experiment_config.yaml", "x") as f:
             OmegaConf.save(config=hydra_config, f=f.name)
 
-        create_tokenizer_config(dataloader.dataset.tokenizer, f"{logger.log_dir}/tokenizer_config.yaml")
+        create_tokenizer_config(train_dataloader.dataset.tokenizer, f"{logger.log_dir}/tokenizer_config.yaml")
 
         train(
             model=model,

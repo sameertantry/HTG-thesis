@@ -125,7 +125,7 @@ def create_annotations(
     return annotations
 
 
-def build_dataset_from_config(config: DictConfig, is_train: bool) -> Dataset:
+def build_dataset_from_config(config: DictConfig, is_train: bool, tokenizer: CharLevelTokenizer = None) -> Dataset:
     data = {"filename": [], "text": []}
     for dataset_part in config.dataset_parts:
         annotations_part = create_annotations(
@@ -134,7 +134,8 @@ def build_dataset_from_config(config: DictConfig, is_train: bool) -> Dataset:
         data["filename"] += annotations_part["filename"]
         data["text"] += annotations_part["text"]
 
-    tokenizer = build_tokenizer(data["text"])
+    if tokenizer is None:
+      tokenizer = build_tokenizer(data["text"])
     data["tokenized_text"] = tokenizer.encode(data["text"])
 
     return IAMWordsDataset(
@@ -146,9 +147,9 @@ def build_dataset_from_config(config: DictConfig, is_train: bool) -> Dataset:
 
 
 def build_dataloader_from_config(
-    config: DictConfig, is_train: bool = True, max_seq_len: int = 0
+    config: DictConfig, is_train: bool = True, max_seq_len: int = 0, tokenizer: CharLevelTokenizer = None,
 ) -> DataLoader:
-    dataset = build_dataset_from_config(config=config, is_train=is_train)
+    dataset = build_dataset_from_config(config=config, is_train=is_train, tokenizer=tokenizer)
 
     max_seq_len = max_seq_len if max_seq_len > 0 else None
     dataset_max_seq_len = max([len(s) for s in dataset.data["tokenized_text"]])
