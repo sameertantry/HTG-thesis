@@ -64,11 +64,13 @@ def train(
     device: torch.device,
     num_epochs: int,
     logger: SummaryWriter,
+    target_metric_name: str,
     grad_norm_value: float = 1.0,
 ):
-    model.train()
-
+    best_val_target_metric = 1e9
     for epoch in range(num_epochs):
+        model.train()
+
         epoch_loss = 0.0
 
         for images_batch, tokens_ids_batch, target_len_batch in tqdm(
@@ -121,16 +123,25 @@ def train(
             scheduler.step(epoch_loss)
 
         if (epoch + 1) % 5 == 0:
-            evaluate(
+            print()
+            val_metrics = evaluate(
                 model=model,
                 dataloader=val_dataloader,
                 criterion=criterion,
                 metrics=metrics,
                 device=device,
                 logger=logger,
-                prefix="Validation",
+                prefix="Val",
                 iteration=epoch+1
             )
+
+            if val_metrics[target_metric_name] <= best_val_target_metric:
+                best_val_target_metric = val_metrics[target_metric_name]
+                torch.save(
+                    {"model_state_dict": model.state_dict()},
+                    f"{logger.log_dir}/weights_best_val_{target_metric_name}.pth"
+                )
+
         print("\n\n")
 
 
@@ -144,7 +155,7 @@ def evaluate(
     logger: SummaryWriter,
     prefix: str = "Test",
     iteration: int = 1
-):
+) -> float:
     model.eval()
 
     test_loss = 0.0
@@ -178,12 +189,17 @@ def evaluate(
     test_loss /= len(dataloader)
     print(f"{prefix} Loss:  {test_loss}")
     logger.add_scalar(f"{prefix} Loss", test_loss, iteration)
+
+    metrics_values = {"Loss": test_loss,}
     
     for metric_name, metric in metrics.items():
         test_metric_value = metric.compute()
+        metrics_values[metric_name] = test_metric_value
         print(f"{prefix} {metric_name}: {test_metric_value}")
         logger.add_scalar(f"{prefix} " + metric_name, test_metric_value, iteration)
         metric.reset()
+    
+    return metrics_values
 
 
 @hydra.main(version_base=None, config_path="configs/", config_name="train_crnn")
@@ -234,10 +250,13 @@ def main(hydra_config: DictConfig):
     optimizer = build_optimizer_from_config(experiment_config.optimizer, model)
     scheduler = build_scheduler_from_config(experiment_config.scheduler, optimizer)
     criterion = nn.CTCLoss(blank=train_dataloader.dataset.tokenizer.pad_idx)
+
     metrics = {
         "CER": CharErrorRate(),
         "ED": EditDistance(),
     }
+
+    target_metric_name = "CER"
 
     num_params = get_model_size(model)
     print(f"Model parameters number: {num_params:,d}")
@@ -261,15 +280,19 @@ def main(hydra_config: DictConfig):
             device=device,
             num_epochs=experiment_config.num_epochs,
             logger=logger,
+            target_metric_name=target_metric_name,
         )
 
-        if len(experiment_config.checkpoint_save_path) > 0:
-            checkpoint_save_path = experiment_config.checkpoint_save_path
-        else:
-            checkpoint_save_path = f"weights/{log_filename}.pth"
+        torch.save({"model_state_dict": model.state_dict()}, f"{logger.log_dir}/weights_last.pth")
 
-        torch.save({"model_state_dict": model.state_dict()}, checkpoint_save_path)
-
+        model.load_state_dict(
+            torch.load(
+                f"{logger.log_dir}/weights_best_val_{target_metric_name}.pth",
+                map_location=device,
+            )["model_state_dict"]
+        )
+        
+        print("Testing best model...")
         evaluate(
             model=model,
             dataloader=test_dataloader,
