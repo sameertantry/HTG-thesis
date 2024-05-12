@@ -249,7 +249,8 @@ def main(hydra_config: DictConfig):
 
         train(
             model=model,
-            dataloader=train_dataloader,
+            train_dataloader=train_dataloader,
+            val_dataloader=test_dataloader,
             criterion=criterion,
             optimizer=optimizer,
             scheduler=scheduler,
