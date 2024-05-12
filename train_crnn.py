@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from torch.profiler import profile, record_function, ProfilerActivity
 from torch.utils.tensorboard import SummaryWriter
 
-from torchmetrics.text import CharErrorRate
+from torchmetrics.text import CharErrorRate, EditDistance
 
 from omegaconf import OmegaConf, DictConfig
 from tqdm import tqdm
@@ -59,7 +59,7 @@ def train(
     criterion: nn.Module,
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler.LRScheduler,
-    metric: nn.Module,
+    metrics: nn.Module,
     device: torch.device,
     num_epochs: int,
     logger: SummaryWriter,
@@ -88,6 +88,8 @@ def train(
                 grad_norm_value=grad_norm_value,
             )
 
+            epoch_loss += loss
+
             decoded_tokens_ids = ctc_decode(log_probas)
             decoded_tokens = dataloader.dataset.tokenizer.decode(
                 decoded_tokens_ids, ignore_pad=True
@@ -95,18 +97,22 @@ def train(
             decoded_target_tokens = dataloader.dataset.tokenizer.decode(
                 tokens_ids_batch.detach().cpu(), ignore_pad=True
             )
-            metric.update(decoded_tokens, decoded_target_tokens)
-            epoch_loss += loss
-
-        epoch_loss /= len(dataloader)
-        epoch_cer = metric.compute()
+            
+            for metric in metrics.values():
+                metric.update(decoded_tokens, decoded_target_tokens)
 
         print(f"Epoch:  {epoch + 1} / {num_epochs}")
-        print(f"Epoch Loss: {epoch_loss}")
-        print(f"Epoch CER: {epoch_cer}")
 
+        epoch_loss /= len(dataloader)
+        print(f"Epoch Loss: {epoch_loss}")
         logger.add_scalar("Epoch loss", epoch_loss, epoch + 1)
-        logger.add_scalar("Epoch CER", epoch_cer, epoch + 1)
+
+        for metric_name, metric in metrics.items():
+            epoch_metric_value = metric.compute()
+            print(f"Epoch {metric_name}: {epoch_metric_value}")
+            logger.add_scalar("Epoch " + metric_name, epoch_metric_value, epoch + 1)
+            metric.reset()
+        
         for param_group in optimizer.param_groups:
             logger.add_scalar("Learning rate", param_group["lr"], epoch + 1)
 
@@ -119,7 +125,7 @@ def evaluate(
     model: CRNN,
     dataloader: DataLoader,
     criterion: nn.Module,
-    metric: nn.Module,
+    metrics: nn.Module,
     device: torch.device,
     logger: SummaryWriter,
 ):
@@ -140,6 +146,7 @@ def evaluate(
         images_len = torch.LongTensor([logits.size(0)] * logits.size(1))
 
         loss = criterion(log_probas, tokens_ids_batch, images_len, target_len_batch)
+        test_loss += loss
 
         decoded_tokens_ids = ctc_decode(log_probas)
         decoded_tokens = dataloader.dataset.tokenizer.decode(
@@ -149,17 +156,18 @@ def evaluate(
             tokens_ids_batch.detach().cpu(), ignore_pad=True
         )
 
-        metric.update(decoded_tokens, decoded_target_tokens)
-        test_loss += loss
+        for metric in metrics.values():
+            metric.update(decoded_tokens, decoded_target_tokens)
 
     test_loss /= len(dataloader)
-    test_cer = metric.compute()
-
     print(f"Test Loss:  {test_loss}")
-    print(f"Test CER: {test_cer}")
-
     logger.add_scalar("Test Loss", test_loss, 1)
-    logger.add_scalar("Test CER", test_cer, 1)
+    
+    for metric_name, metric in metrics.items():
+        test_metric_value = metric.compute()
+        print(f"Test {metric_name}: {test_metric_value}")
+        logger.add_scalar("Test " + metric_name, test_metric_value, 1)
+        metric.reset()
 
 
 @hydra.main(version_base=None, config_path="configs/", config_name="train_crnn")
@@ -210,7 +218,10 @@ def main(hydra_config: DictConfig):
     optimizer = build_optimizer_from_config(experiment_config.optimizer, model)
     scheduler = build_scheduler_from_config(experiment_config.scheduler, optimizer)
     criterion = nn.CTCLoss(blank=train_dataloader.dataset.tokenizer.pad_idx)
-    cer = CharErrorRate()
+    metrics = {
+        "CER": CharErrorRate(),
+        "ED": EditDistance(),
+    }
 
     num_params = get_model_size(model)
     print(f"Model parameters number: {num_params:,d}")
@@ -229,7 +240,7 @@ def main(hydra_config: DictConfig):
             criterion=criterion,
             optimizer=optimizer,
             scheduler=scheduler,
-            metric=cer,
+            metrics=metrics,
             device=device,
             num_epochs=experiment_config.num_epochs,
             logger=logger,
@@ -246,7 +257,7 @@ def main(hydra_config: DictConfig):
             model=model,
             dataloader=test_dataloader,
             criterion=criterion,
-            metric=cer,
+            metris=metrics,
             device=device,
             logger=logger,
         )
