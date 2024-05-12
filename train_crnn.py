@@ -128,7 +128,10 @@ def train(
                 metrics=metrics,
                 device=device,
                 logger=logger,
+                prefix="Validation",
+                iteration=epoch+1
             )
+        print("\n\n")
 
 
 @torch.no_grad()

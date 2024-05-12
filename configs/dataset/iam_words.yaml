@@ -10,10 +10,10 @@ train_dataset:
 
   dataset_parts:
     - annotations_path: "data/gan.iam.tr_va.gt.filter27"
-      images_dir: "data/mock_dataset"
+      images_dir: "iam_words"
 
   dataloader:
-    batch_size: 512
+    batch_size: 1024
     num_workers: 0
     pin_memory: True
 
@@ -27,7 +27,7 @@ test_dataset:
 
   dataset_parts:
     - annotations_path: "data/gan.iam.test.gt.filter27"
-      images_dir: "data/mock_dataset"
+      images_dir: "iam_words"
 
   dataloader:
     batch_size: 512
