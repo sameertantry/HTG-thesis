@@ -55,7 +55,8 @@ def train_step(
 
 def train(
     model: CRNN,
-    dataloader: DataLoader,
+    train_dataloader: DataLoader,
+    val_dataloader: DataLoader,
     criterion: nn.Module,
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler.LRScheduler,
@@ -71,7 +72,7 @@ def train(
         epoch_loss = 0.0
 
         for images_batch, tokens_ids_batch, target_len_batch in tqdm(
-            dataloader, total=len(dataloader)
+            train_dataloader, total=len(train_dataloader)
         ):
 
             images_batch = images_batch.to(device)
@@ -91,10 +92,10 @@ def train(
             epoch_loss += loss
 
             decoded_tokens_ids = ctc_decode(log_probas)
-            decoded_tokens = dataloader.dataset.tokenizer.decode(
+            decoded_tokens = train_dataloader.dataset.tokenizer.decode(
                 decoded_tokens_ids, ignore_pad=True
             )
-            decoded_target_tokens = dataloader.dataset.tokenizer.decode(
+            decoded_target_tokens = train_dataloader.dataset.tokenizer.decode(
                 tokens_ids_batch.detach().cpu(), ignore_pad=True
             )
             
@@ -103,7 +104,7 @@ def train(
 
         print(f"Epoch:  {epoch + 1} / {num_epochs}")
 
-        epoch_loss /= len(dataloader)
+        epoch_loss /= len(train_dataloader)
         print(f"Epoch Loss: {epoch_loss}")
         logger.add_scalar("Epoch loss", epoch_loss, epoch + 1)
 
@@ -119,6 +120,16 @@ def train(
         if scheduler:
             scheduler.step(epoch_loss)
 
+        if (epoch + 1) % 5 == 0:
+            evaluate(
+                model=model,
+                dataloader=val_dataloader,
+                criterion=criterion,
+                metrics=metrics,
+                device=device,
+                logger=logger,
+            )
+
 
 @torch.no_grad()
 def evaluate(
@@ -128,6 +139,8 @@ def evaluate(
     metrics: nn.Module,
     device: torch.device,
     logger: SummaryWriter,
+    prefix: str = "Test",
+    iteration: int = 1
 ):
     model.eval()
 
@@ -160,13 +173,13 @@ def evaluate(
             metric.update(decoded_tokens, decoded_target_tokens)
 
     test_loss /= len(dataloader)
-    print(f"Test Loss:  {test_loss}")
-    logger.add_scalar("Test Loss", test_loss, 1)
+    print(f"{prefix} Loss:  {test_loss}")
+    logger.add_scalar(f"{prefix} Loss", test_loss, iteration)
     
     for metric_name, metric in metrics.items():
         test_metric_value = metric.compute()
-        print(f"Test {metric_name}: {test_metric_value}")
-        logger.add_scalar("Test " + metric_name, test_metric_value, 1)
+        print(f"{prefix} {metric_name}: {test_metric_value}")
+        logger.add_scalar(f"{prefix} " + metric_name, test_metric_value, iteration)
         metric.reset()
 
 
