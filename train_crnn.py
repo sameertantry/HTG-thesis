@@ -204,13 +204,13 @@ def evaluate(
 
 @hydra.main(version_base=None, config_path="configs/", config_name="train_crnn")
 def main(hydra_config: DictConfig):
+    set_seed(experiment_config.seed)
+    
     OmegaConf.set_struct(hydra_config, False)
 
     experiment_config = hydra_config.experiment
     model_config = hydra_config.model
     dataset_config = hydra_config.dataset
-
-    set_seed(experiment_config.seed)
 
     train_dataloader = build_dataloader_from_config(
         dataset_config.train_dataset,
@@ -236,11 +236,6 @@ def main(hydra_config: DictConfig):
     print(f"Device used: {device}")
 
     model = CRNN(config=model_config.model, num_classes=vocab_size)
-    model.load_state_dict(
-        torch.load(
-            model_config.init_weights_path,
-        )["model_state_dict"]
-    )
 
     model.to(device)
     if model_config.compile:
