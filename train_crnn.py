@@ -204,13 +204,13 @@ def evaluate(
 
 @hydra.main(version_base=None, config_path="configs/", config_name="train_crnn")
 def main(hydra_config: DictConfig):
-    set_seed(experiment_config.seed)
-
     OmegaConf.set_struct(hydra_config, False)
 
     experiment_config = hydra_config.experiment
     model_config = hydra_config.model
     dataset_config = hydra_config.dataset
+
+    set_seed(experiment_config.seed)
 
     train_dataloader = build_dataloader_from_config(
         dataset_config.train_dataset,
