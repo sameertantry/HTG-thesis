@@ -205,7 +205,7 @@ def evaluate(
 @hydra.main(version_base=None, config_path="configs/", config_name="train_crnn")
 def main(hydra_config: DictConfig):
     set_seed(experiment_config.seed)
-    
+
     OmegaConf.set_struct(hydra_config, False)
 
     experiment_config = hydra_config.experiment
@@ -216,6 +216,12 @@ def main(hydra_config: DictConfig):
         dataset_config.train_dataset,
         is_train=True,
         max_seq_len=dataset_config.max_seq_len,
+    )
+    val_dataloader = build_dataloader_from_config(
+        dataset_config.val_dataset,
+        is_train=False,
+        max_seq_len=dataset_config.max_seq_len,
+        tokenizer=train_dataloader.dataset.tokenizer,
     )
     test_dataloader = build_dataloader_from_config(
         dataset_config.test_dataset,
@@ -228,6 +234,7 @@ def main(hydra_config: DictConfig):
     vocab_size = len(train_dataloader.dataset.tokenizer)
 
     print(f"Train Dataset size: {len(train_dataloader.dataset)}")
+    print(f"Validation Dataset size: {len(val_dataloader.dataset)}")
     print(f"Test Dataset size: {len(test_dataloader.dataset)}")
     print(f"Dataset max sequence length: {max_seq_len}")
     print(f"Vocabulary size: {vocab_size}")
@@ -272,7 +279,7 @@ def main(hydra_config: DictConfig):
         train(
             model=model,
             train_dataloader=train_dataloader,
-            val_dataloader=test_dataloader,
+            val_dataloader=val_dataloader,
             criterion=criterion,
             optimizer=optimizer,
             scheduler=scheduler,

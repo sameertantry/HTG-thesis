@@ -1,4 +1,4 @@
-max_seq_len: 8
+max_seq_len: 0
 
 train_dataset:
   preprocessor:
@@ -9,7 +9,7 @@ train_dataset:
       - 0.5
 
   dataset_parts:
-    - annotations_path: "data/gan.iam.tr_va.gt.filter27"
+    - annotations_path: "data/train_annotations.txt"
       images_dir: "iam_words"
 
   dataloader:
@@ -26,7 +26,24 @@ test_dataset:
       - 0.5
 
   dataset_parts:
-    - annotations_path: "data/gan.iam.test.gt.filter27"
+    - annotations_path: "data/val_annotations.txt"
+      images_dir: "iam_words"
+
+  dataloader:
+    batch_size: 512
+    num_workers: 0
+    pin_memory: True
+
+test_dataset:
+  preprocessor:
+    normalize:
+      mean:
+      - 0.5
+      std:
+      - 0.5
+
+  dataset_parts:
+    - annotations_path: "data/test_annotations.txt"
       images_dir: "iam_words"
 
   dataloader:
