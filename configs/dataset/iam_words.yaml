@@ -17,7 +17,7 @@ train_dataset:
     num_workers: 0
     pin_memory: True
 
-test_dataset:
+val_dataset:
   preprocessor:
     normalize:
       mean:
