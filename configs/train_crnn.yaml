@@ -5,4 +5,4 @@ defaults:
   - model: crnn
 
 experiment:
-    checkpoint_save_path: ""
+    device: "cuda:0"
