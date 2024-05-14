@@ -239,7 +239,7 @@ def main(hydra_config: DictConfig):
     print(f"Dataset max sequence length: {max_seq_len}")
     print(f"Vocabulary size: {vocab_size}")
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = experiment_config.device if torch.cuda.is_available() else "cpu"
     print(f"Device used: {device}")
 
     model = CRNN(config=model_config.model, num_classes=vocab_size)
